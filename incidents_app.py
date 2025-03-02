@@ -33,7 +33,7 @@ st.title("Palotapahtumien analyysi")
 def load_and_merge_data():
     # Load Events Data
     try:
-        events = pd.read_csv('data/events.csv')
+        events = execute_query("SELECT * FROM tilanteet")
     except Exception as e:
         st.error(f"Error loading events data: {e}")
         return pd.DataFrame()
@@ -64,7 +64,7 @@ def load_and_merge_data():
 
     # Load Weather Data
     try:
-        weather = pd.read_csv('data/weather.csv')
+        weather = execute_query("SELECT * FROM saatilat")
     except Exception as e:
         st.error(f"Error loading weather data: {e}")
         return pd.DataFrame()
