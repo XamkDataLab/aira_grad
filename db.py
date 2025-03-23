@@ -1,5 +1,5 @@
-import pandas as pd
 import streamlit as st
+import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -24,4 +24,3 @@ def execute_query(query, params=None):
     except SQLAlchemyError as e:
         st.error(f"Database error: {e}")
         return pd.DataFrame()
-
