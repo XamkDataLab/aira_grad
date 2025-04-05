@@ -14,7 +14,7 @@ def cached_execute_query(query, params=None):
 
 
 def rescue_events_dashboard():
-    st.title("Rescue Events Time Series Analysis")
+    st.title("Vasteiden aikasarja-analyysi")
 
     # Start timer
     start_time = time.time()
@@ -62,6 +62,15 @@ def rescue_events_dashboard():
 
     municipalities_df = get_municipalities()
     all_municipalities = municipalities_df['municipality'].tolist()
+    
+    # Get all hake values - Cache this as it rarely changes
+    @st.cache_data(ttl=86400)  # Cache for 24 hours
+    def get_hake_values():
+        hake_query = "SELECT DISTINCT hake FROM tilanteet WHERE hake IS NOT NULL ORDER BY hake"
+        return cached_execute_query(hake_query)
+
+    hake_df = get_hake_values()
+    all_hake_values = hake_df['hake'].tolist()
 
     # === UI Controls (Main area) ===
     st.subheader("Filter Options")
@@ -69,28 +78,35 @@ def rescue_events_dashboard():
     # Date range
     col1, col2 = st.columns(2)
     with col1:
-        start_date = st.date_input("Start Date", min_date, min_value=min_date, max_value=max_date)
+        start_date = st.date_input("Aloituspäivä", min_date, min_value=min_date, max_value=max_date)
     with col2:
-        end_date = st.date_input("End Date", max_date, min_value=min_date, max_value=max_date)
+        end_date = st.date_input("Lopetuspäivä", max_date, min_value=min_date, max_value=max_date)
 
     # Event types
     selected_event_types = st.multiselect(
-        "Select Event Types (Only types with >100 events shown)",
+        "Valitse vasteen tyyppi (vain ne joita yli 100 näytetään)",
         options=all_event_types,
         default=[]
     )
 
     # Municipalities
     selected_municipalities = st.multiselect(
-        "Select Municipalities (Optional)",
+        "Valitse kunta (valinnainen)",
         options=all_municipalities,
+        default=[]
+    )
+    
+    # Selected hake values
+    selected_hake_values = st.multiselect(
+        "Valitse hätäkeskus (valinnainen)",
+        options=all_hake_values,
         default=[]
     )
 
     # Time aggregation
     time_aggregation = st.selectbox(
-        "Time Aggregation",
-        options=["Daily", "Weekly", "Monthly", "Yearly"],
+        "Aikajakson ryhmittely",
+        options=["Päivä", "Viikko", "Kuukausi", "Vuosi"],
         index=0
     )
 
@@ -104,14 +120,15 @@ def rescue_events_dashboard():
 
     # Cache the filtered data queries
     @st.cache_data(ttl=3600, show_spinner=False)  # Cache for 1 hour
-    def get_filtered_data(start_dt, end_dt, event_types, municipalities, time_agg):
+    def get_filtered_data(start_dt, end_dt, event_types, municipalities, hake_values, time_agg):
         # === Build Queries ===
         base_params = {"start_date": start_dt, "end_date": end_dt}
 
         selected_query = """
         SELECT 
             timestamp,
-            event_type
+            event_type,
+            hake
         FROM 
             tilanteet
         WHERE 
@@ -130,10 +147,17 @@ def rescue_events_dashboard():
             selected_query += f" AND municipality IN ({muni_placeholders})"
             for i, muni in enumerate(municipalities):
                 base_params[f"municipality_{i}"] = muni
+                
+        if hake_values:
+            hake_placeholders = ', '.join([f':hake_{i}' for i in range(len(hake_values))])
+            selected_query += f" AND hake IN ({hake_placeholders})"
+            for i, hake in enumerate(hake_values):
+                base_params[f"hake_{i}"] = hake
 
         total_query = """
         SELECT 
-            timestamp
+            timestamp,
+            hake
         FROM 
             tilanteet
         WHERE 
@@ -144,6 +168,10 @@ def rescue_events_dashboard():
         if municipalities:
             muni_placeholders = ', '.join([f':municipality_{i}' for i in range(len(municipalities))])
             total_query += f" AND municipality IN ({muni_placeholders})"
+            
+        if hake_values:
+            hake_placeholders = ', '.join([f':hake_{i}' for i in range(len(hake_values))])
+            total_query += f" AND hake IN ({hake_placeholders})"
 
         # Query Execution
         with st.spinner("Fetching data..."):
@@ -165,16 +193,16 @@ def rescue_events_dashboard():
         selected_df['timestamp'] = pd.to_datetime(selected_df['timestamp'])
 
         # Time grouping
-        if time_aggregation == "Daily":
+        if time_aggregation == "Päivä":
             total_df['time_group'] = total_df['timestamp'].dt.floor('D')
             selected_df['time_group'] = selected_df['timestamp'].dt.floor('D')
-        elif time_aggregation == "Weekly":
+        elif time_aggregation == "Viikko":
             total_df['time_group'] = total_df['timestamp'].dt.to_period('W').dt.start_time
             selected_df['time_group'] = selected_df['timestamp'].dt.to_period('W').dt.start_time
-        elif time_aggregation == "Monthly":
+        elif time_aggregation == "Kuukausi":
             total_df['time_group'] = total_df['timestamp'].dt.to_period('M').dt.start_time
             selected_df['time_group'] = selected_df['timestamp'].dt.to_period('M').dt.start_time
-        elif time_aggregation == "Yearly":
+        elif time_aggregation == "Vuosi":
             total_df['time_group'] = total_df['timestamp'].dt.to_period('Y').dt.start_time
             selected_df['time_group'] = selected_df['timestamp'].dt.to_period('Y').dt.start_time
 
@@ -186,6 +214,46 @@ def rescue_events_dashboard():
         merged_df['percentage'] = (merged_df['selected_count'] / merged_df['total_count'] * 100).round(2)
 
         return total_df, selected_df, merged_df
+        
+    # Process data by hake
+    @st.cache_data(ttl=3600)  # Cache for 1 hour
+    def process_data_by_hake(total_df, selected_df, time_aggregation):
+        if total_df.empty or selected_df.empty:
+            return None
+            
+        total_df = total_df.copy()
+        selected_df = selected_df.copy()
+        
+        # Time grouping (Same as in process_data)
+        if time_aggregation == "Päivä":
+            total_df['time_group'] = total_df['timestamp'].dt.floor('D')
+            selected_df['time_group'] = selected_df['timestamp'].dt.floor('D')
+        elif time_aggregation == "Viikko":
+            total_df['time_group'] = total_df['timestamp'].dt.to_period('W').dt.start_time
+            selected_df['time_group'] = selected_df['timestamp'].dt.to_period('W').dt.start_time
+        elif time_aggregation == "Kuukausi":
+            total_df['time_group'] = total_df['timestamp'].dt.to_period('M').dt.start_time
+            selected_df['time_group'] = selected_df['timestamp'].dt.to_period('M').dt.start_time
+        elif time_aggregation == "Vuosi":
+            total_df['time_group'] = total_df['timestamp'].dt.to_period('Y').dt.start_time
+            selected_df['time_group'] = selected_df['timestamp'].dt.to_period('Y').dt.start_time
+            
+        # Group by hake and time
+        total_counts_by_hake = total_df.groupby(['time_group', 'hake']).size().reset_index(name='total_count')
+        selected_counts_by_hake = selected_df.groupby(['time_group', 'hake', 'event_type']).size().reset_index(name='selected_count')
+        
+        # Merge to calculate percentages within each hake
+        merged_df_by_hake = pd.merge(
+            selected_counts_by_hake, 
+            total_counts_by_hake, 
+            on=['time_group', 'hake'], 
+            how='left'
+        )
+        
+        # Calculate percentage within each hake group
+        merged_df_by_hake['percentage'] = (merged_df_by_hake['selected_count'] / merged_df_by_hake['total_count'] * 100).round(2)
+        
+        return merged_df_by_hake
 
     # Get the data with caching
     total_df, selected_df, time_agg = get_filtered_data(
@@ -193,6 +261,7 @@ def rescue_events_dashboard():
         end_datetime, 
         selected_event_types, 
         selected_municipalities,
+        selected_hake_values,
         time_aggregation
     )
 
@@ -204,18 +273,18 @@ def rescue_events_dashboard():
         return
 
     # Summary stats
-    st.subheader("Summary Statistics")
+    st.subheader("Yhteenveto")
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total Events", total_df.shape[0])
+        st.metric("Vasteita yhteensä", total_df.shape[0])
     with col2:
-        st.metric("Selected Events", selected_df.shape[0])
+        st.metric("Valitut vasteet", selected_df.shape[0])
     with col3:
         percentage = (selected_df.shape[0] / total_df.shape[0] * 100) if total_df.shape[0] > 0 else 0
-        st.metric("Percentage of Total", f"{percentage:.2f}%")
+        st.metric("Prosenttia kaikista vasteista", f"{percentage:.2f}%")
 
     # Line chart
-    st.subheader(f"Selected Event Types as Percentage of All Events ({time_aggregation})")
+    st.subheader(f"Valitut vasteet prosentteina kaikista ({time_aggregation})")
     
     @st.cache_data  # Cache the chart generation
     def create_line_chart(merged_df, time_aggregation):
@@ -241,8 +310,92 @@ def rescue_events_dashboard():
     fig = create_line_chart(merged_df, time_aggregation)
     st.plotly_chart(fig, use_container_width=True)
 
+    # Button to break down by hake
+    st.subheader("Hätäkeskus analyysi")
+    show_hake_breakdown = st.button("Näytä vasteet hätäkeskuksittain")
+    
+    if show_hake_breakdown:
+        # Process data by hake
+        merged_df_by_hake = process_data_by_hake(total_df, selected_df, time_aggregation)
+        
+        if merged_df_by_hake is None or merged_df_by_hake.empty:
+            st.warning("No data available for breakdown by Hake values. Please ensure you've selected Hake values in the filter.")
+        else:
+            # Create breakdown chart - combined visualization
+            st.subheader(f"Valittujen vasteiden osuus hätäkeskusten kaikista vasteista ({time_aggregation})")
+            
+            @st.cache_data  # Cache the chart generation
+            def create_hake_breakdown_chart(merged_df_by_hake, time_aggregation):
+                # Create a figure for each event type
+                event_types = merged_df_by_hake['event_type'].unique()
+                
+                # Initialize a dictionary to store figures
+                event_figures = {}
+                
+                for event_type in event_types:
+                    # Filter data for the current event type
+                    event_data = merged_df_by_hake[merged_df_by_hake['event_type'] == event_type]
+                    
+                    # Create simplified hake labels for the legend
+                    event_data['hake_label'] = 'Hake: ' + event_data['hake'].astype(str)
+                    
+                    # Create figure for this event type
+                    fig = px.line(
+                        event_data,
+                        x='time_group',
+                        y='percentage',
+                        color='hake_label',
+                        labels={
+                            'time_group': 'Aika',
+                            'percentage': 'Prosenttiosuus kaikista vasteista (%)',
+                            'hake_label': 'Hätäkeskus'
+                        }
+                    )
+                    
+                    fig.update_layout(
+                        title=f"Vasteen tyyppi: {event_type}",
+                        xaxis_title='Aika',
+                        yaxis_title='Prosenttiosuus kaikista vasteista (%)',
+                        legend_title='Hätäkeskus',
+                        height=400,  # Reduced height for each chart
+                        legend=dict(
+                            orientation="v",
+                            yanchor="top",
+                            y=0.99,
+                            xanchor="right",
+                            x=0.99
+                        )
+                    )
+                    
+                    event_figures[event_type] = fig
+                
+                return event_figures
+            
+            event_figures = create_hake_breakdown_chart(merged_df_by_hake, time_aggregation)
+            
+            # Display a chart for each event type
+            for event_type, fig in event_figures.items():
+                st.plotly_chart(fig, use_container_width=True)
+                
+            # Add explanation about the visualization
+            st.info("Kaavio näyttää valitun vasteen prosenttiosuuden hätäkeskusten kaikista vasteista .")
+            
+            # Show data table for the hake breakdown
+            st.subheader("Hätäkeskus data")
+            st.dataframe(merged_df_by_hake.sort_values(['hake', 'time_group']))
+            
+            # Download hake breakdown data
+            csv_hake = merged_df_by_hake.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                "Lataa Data",
+                csv_hake,
+                "hake_breakdown_data.csv",
+                "text/csv",
+                key='download-hake-csv'
+            )
+
     # Show raw data sample
-    st.subheader("Raw Data Sample")
+    st.subheader("Data Sample")
     sample_df = selected_df.sort_values('timestamp', ascending=False).head(100)
     st.dataframe(sample_df)
 

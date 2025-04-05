@@ -99,6 +99,7 @@ def create_fire_analysis_chart(summary=None, event_type_filter=None):
     FROM tilanteet
     WHERE lower(event_type) LIKE '%palo%'
     GROUP BY lower(event_type)
+    HAVING COUNT(*) > 100
     ORDER BY count DESC;
     """
     all_event_types = execute_query(event_types_query)
