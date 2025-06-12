@@ -1,0 +1,9 @@
+gradio
+pandas
+psycopg2-binary
+selenium
+beautifulsoup4
+requests
+python-dotenv
+sqlalchemy
+plotly

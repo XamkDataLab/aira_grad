@@ -1,0 +1,9 @@
+.env
+
+.gradio/
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+amppa_scraper.py
