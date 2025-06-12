@@ -2,7 +2,6 @@ import gradio as gr
 from db import *
 from palotapahtumat import *
 from vasteet import *
-from uutiset import *
 import pandas as pd
 from vakiluvut import *
 
