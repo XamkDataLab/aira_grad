@@ -1,19 +1,15 @@
-# Core web framework
+
 gradio
 
-# Database
 sqlalchemy
 psycopg2-binary
 python-dotenv
 
-# Data processing
 pandas
 numpy
 
-# Visualization
 matplotlib
 folium
 
-# AI/LLM clients (based on llm_client.py imports)
 google-generativeai
 anthropic

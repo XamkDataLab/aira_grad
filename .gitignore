@@ -5,3 +5,6 @@
 __pycache__/
 
 .gradio/
+pestel_maintenance.py
+risks_validated.py
+test_pestel_updates.py

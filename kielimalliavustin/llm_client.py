@@ -1,7 +1,3 @@
-"""
-Modular LLM Client with support for multiple language models.
-Easy to extend with new models by creating new provider classes.
-"""
 
 import google.generativeai as genai
 import anthropic
@@ -18,7 +14,6 @@ load_dotenv()
 
 @dataclass
 class ModelConfig:
-    """Configuration for a language model."""
     name: str
     display_name: str
     provider: str
@@ -50,7 +45,6 @@ class LLMProvider(ABC):
 
 
 class GeminiProvider(LLMProvider):
-    """Google Gemini API provider."""
     
     def __init__(self, model_name: str = "gemini-2.5-flash"):
         self.api_key = os.getenv("api_key")
@@ -138,7 +132,6 @@ class GeminiProvider(LLMProvider):
 
 
 class ClaudeProvider(LLMProvider):
-    """Anthropic Claude API provider."""
     
     def __init__(self, model_name: str = "claude-opus-4-5-20251101"):
         self.api_key = os.getenv("claude_api_key")
@@ -193,7 +186,6 @@ class ClaudeProvider(LLMProvider):
 
 
 class LocalLLMProvider(LLMProvider):
-    """Provider for local OpenAI-compatible API endpoints."""
     
     def __init__(self, name: str, display_name: str, endpoint_env_var: str, description: str = ""):
         self._name = name
@@ -283,10 +275,6 @@ You are a helpful AI assistant. Answer questions directly and concisely in the s
 
 
 class LLMClient:
-    """
-    Main LLM client that manages multiple model providers.
-    Easy to extend by registering new providers.
-    """
     
     def __init__(self):
         self._providers: Dict[str, LLMProvider] = {}
@@ -530,7 +518,6 @@ Vastaa suomeksi, selkeästi ja jäsennellysti."""
         return provider.generate(prompt, temperature=0.5, max_tokens=2048)
 
 
-# Backwards compatibility - create a GeminiClient alias
 class GeminiClient(LLMClient):
     """Backwards compatible alias for LLMClient."""
     pass
